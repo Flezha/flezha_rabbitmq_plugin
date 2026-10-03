@@ -244,11 +244,16 @@ defmodule FlezhaRabbitmq.Consumer.Reader do
           %{state | consecutive_failures: 0, last_error: nil}
 
         # The refused deliveries and every one held after them go back, in
-        # their order, before anything newer is injected.
+        # their order, before anything newer is injected. The refusal is
+        # logged first, so it is on record even when the return blocks.
         [{_delivery, {:error, reason}} | _] ->
           returned = Enum.map(refused, &elem(&1, 0)) ++ Enum.reverse(state.held)
+
+          state =
+            refused(%{state | held: []}, length(returned), "ingest refused: #{inspect(reason)}")
+
           settle(state.link, &AMQP.Basic.nack/3, returned, requeue: true)
-          refused(%{state | held: []}, length(returned), "ingest refused: #{inspect(reason)}")
+          state
       end
 
     emit(:unacked, %{count: length(state.held)}, labels(state))
