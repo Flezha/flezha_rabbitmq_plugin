@@ -2,7 +2,7 @@ defmodule FlezhaRabbitmq.ConsumerTest do
   @moduledoc """
   The consumer without a broker: its options and refusals, a delivery as the
   input it becomes, and the reader's acknowledgements, returns, back-off and
-  reconnect against a channel that is a bare process and a stand-in operator.
+  reconnect against a channel that is a bare process and a stand-in relay.
   """
 
   # async: false: Mimic's global mode and the primary Logger.
@@ -34,7 +34,7 @@ defmodule FlezhaRabbitmq.ConsumerTest do
     end
 
     test "a member of a partition group is refused" do
-      assert {:error, {:partitioned_host, %{provider: "rabbitmq_consumer", operator: "op"}}} =
+      assert {:error, {:partitioned_host, %{provider: "rabbitmq_consumer", relay: "op"}}} =
                Helpers.prepare(
                  Consumer,
                  Map.merge(@base, %{partition_count: 2, partition_index: 0})
@@ -154,7 +154,7 @@ defmodule FlezhaRabbitmq.ConsumerTest do
       :ok
     end
 
-    # A reader of `orders` with batches of two, fed by a stand-in operator.
+    # A reader of `orders` with batches of two, fed by a stand-in relay.
     defp reader(verdicts, extra \\ %{}) do
       host = Helpers.stand_in_host(verdicts)
 
@@ -186,7 +186,7 @@ defmodule FlezhaRabbitmq.ConsumerTest do
       end
     end
 
-    test "a batch the operator took is acknowledged once, up to its newest delivery" do
+    test "a batch the relay took is acknowledged once, up to its newest delivery" do
       {_opts, pid} = reader([])
       deliver(pid, [1, 2])
 

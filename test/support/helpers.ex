@@ -2,7 +2,7 @@ defmodule FlezhaRabbitmq.Test.Helpers do
   @moduledoc """
   What the package's tests need from a running controller and nothing more: a
   poll, a telemetry capture, a plugin prepared and activated as the extension
-  table does it, a stand-in operator, a channel without a broker, and the
+  table does it, a stand-in relay, a channel without a broker, and the
   outbox owner a delivery-guaranteed output answers to.
   """
 
@@ -63,7 +63,7 @@ defmodule FlezhaRabbitmq.Test.Helpers do
         %{
           overwatcher_pid: self(),
           source_namespace: :default,
-          source_operator_id: "op",
+          source_relay_id: "op",
           source_plugin_id: "rabbit",
           subscribed_extensions: [:on_output]
         },
@@ -98,7 +98,7 @@ defmodule FlezhaRabbitmq.Test.Helpers do
   end
 
   @doc """
-  The host operator of a feeding worker, linked to the caller: it answers each
+  The host relay of a feeding worker, linked to the caller: it answers each
   confirming ingest with the next of `verdicts`, `:ok` once they run out, and
   tells the caller `{:ingest, body, metadata}`.
   """

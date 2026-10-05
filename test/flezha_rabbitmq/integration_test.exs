@@ -1,7 +1,7 @@
 defmodule FlezhaRabbitmq.IntegrationTest do
   @moduledoc """
   Both providers against the RabbitMQ of `docker/dev/docker-compose.yml`, with
-  a stand-in operator. Tagged `:rabbitmq_integration`, which the default run
+  a stand-in relay. Tagged `:rabbitmq_integration`, which the default run
   excludes:
 
       RABBITMQ_INTEGRATION=1 mix test --include rabbitmq_integration
@@ -263,7 +263,7 @@ defmodule FlezhaRabbitmq.IntegrationTest do
     assert_receive {:ingest, "after", _}, 10_000
   end
 
-  test "operators sharing one producer publish through one connection", %{run: run} do
+  test "relays sharing one producer publish through one connection", %{run: run} do
     plugin = "share-#{run}"
     {opts, pid} = producer(%{plugin_id: plugin})
     {_again, ^pid} = Helpers.activate(Producer, %{plugin_id: opts.plugin_id})

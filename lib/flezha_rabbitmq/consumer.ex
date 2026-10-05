@@ -1,14 +1,14 @@
 defmodule FlezhaRabbitmq.Consumer do
   @moduledoc """
-  The `rabbitmq_consumer` provider: one RabbitMQ queue read onto the operator's
+  The `rabbitmq_consumer` provider: one RabbitMQ queue read onto the relay's
   entry channel, each message one input.
 
   Each binding runs one `FlezhaRabbitmq.Consumer.Reader`, which consumes the
-  queue with a prefetch window, hands the deliveries to the operator in
-  batches and acknowledges each one only after the operator took it. Several
-  operators bound to consumers of one queue are competing consumers, as
+  queue with a prefetch window, hands the deliveries to the relay in
+  batches and acknowledges each one only after the relay took it. Several
+  relays bound to consumers of one queue are competing consumers, as
   RabbitMQ intends. One consumer per binding: not shareable, and refused on a
-  partitioned operator, whose members a message's key decides between.
+  partitioned relay, whose members a message's key decides between.
   Options, the input's metadata, acknowledgement, health and telemetry:
   `docs/plugins/rabbitmq.md` in the core.
   """
@@ -49,7 +49,7 @@ defmodule FlezhaRabbitmq.Consumer do
             type: :int,
             default: 10,
             min: 0,
-            doc: "Longest a delivery waits for others before its batch goes to the operator"
+            doc: "Longest a delivery waits for others before its batch goes to the relay"
           ],
           msg_id_header: [
             type: :string,
@@ -144,7 +144,7 @@ defmodule FlezhaRabbitmq.Consumer do
 
   defp verdict(_facts, _opts), do: :healthy
 
-  @doc "What `flz operator info` shows beneath the plugin: the queue and its verdict."
+  @doc "What `flz relay info` shows beneath the plugin: the queue and its verdict."
   @impl true
   def inspect_state(opts), do: %{queue: opts.queue, health: health(opts)}
 end

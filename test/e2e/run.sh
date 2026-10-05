@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The RabbitMQ package's consumer and producer against a real controller release
 # and the core's dev broker: it packages the plugin, installs it into a release
-# under a temporary plugin root, starts the controller and the relay fixture's
+# under a temporary plugin root, starts the controller and the e2e runner's
 # runner, and checks what a user would see. PASS or FAIL per check; exits non-zero
 # on any failure.
 #
@@ -48,7 +48,7 @@ package_plugin
 install_plugin
 say "starting the controller with the package"
 start_controller
-build_relay
+build_runner
 start_runner runner default
 
 check_a() {
@@ -65,8 +65,8 @@ check_b() {
   local in=e2e_rt_in_$RUN out=e2e_rt_out_$RUN
   declare_queue "$in"
   declare_queue "$out"
-  start_operator echo rt_writer
-  start_operator echo rt_reader
+  start_relay echo rt_writer
+  start_relay echo rt_reader
   producer rt_writer_out "$in"
   bind rt_writer_out rt_writer
   producer rt_reader_out "$out"
@@ -74,7 +74,7 @@ check_b() {
   consumer rt_reader_in "$in" rt_reader
   send_all rt_writer 1 100 rt
   if await_count "$out" 100; then
-    pass b "one operator published 100 outputs to $in, a second consumed them all: $(queue_messages "$out" | cut -d' ' -f2 | sort -u | wc -l) in $out"
+    pass b "one relay published 100 outputs to $in, a second consumed them all: $(queue_messages "$out" | cut -d' ' -f2 | sort -u | wc -l) in $out"
   else
     fail b "$out holds $(queue_messages "$out" | cut -d' ' -f2 | sort -u | wc -l) of 100"
   fi
@@ -85,17 +85,17 @@ check_c() {
   declare_queue "$in"
   declare_queue "$out"
   feed "$in" 1 10000 c
-  start_operator echo_once kill_relay
+  start_relay echo_once kill_echo
   producer kill_out "$out"
-  bind kill_out kill_relay
-  consumer kill_in "$in" kill_relay
+  bind kill_out kill_echo
+  consumer kill_in "$in" kill_echo
   await_count "$out" 1 || { fail c "nothing reached $out"; return; }
   say "killing the controller mid-way"
   pkill -KILL -f "beam.smp.* $FLEZHA_NODE_NAME@"
   start_controller
   if await_count "$out" 10000 300 && until_ok 60 "[ \"\$(queue_depth $in)\" = 0 ]"; then
     total=$(queue_messages "$out" | wc -l)
-    pass c "an effectively-once operator lost nothing across a controller kill: 10000 distinct of $total messages in $out, $in empty"
+    pass c "an effectively-once relay lost nothing across a controller kill: 10000 distinct of $total messages in $out, $in empty"
   else
     fail c "$out holds $(queue_messages "$out" | cut -d' ' -f2 | sort -u | wc -l) of 10000; $in holds $(queue_depth "$in")"
   fi
@@ -104,7 +104,7 @@ check_c() {
 check_d() {
   local out=e2e_restart_$RUN mixed copies
   declare_queue "$out"
-  start_operator echo_once restarted
+  start_relay echo_once restarted
   producer restart_out "$out"
   bind restart_out restarted
   send_all restarted 1 500 d
@@ -133,8 +133,8 @@ shared_connections() {
 check_e() {
   local out=e2e_shared_$RUN
   declare_queue "$out"
-  start_operator echo share_a
-  start_operator echo share_b
+  start_relay echo share_a
+  start_relay echo share_b
   producer shared_out "$out"
   bind shared_out share_a
   bind shared_out share_b
@@ -142,7 +142,7 @@ check_e() {
   send_all share_b 1 50 b
   # The management API lists a connection once its statistics are next collected.
   if await_count "$out" 100 && until_ok 30 "[ \"\$(shared_connections)\" = 1 ]"; then
-    pass e "two operators bound to one producer publish through one broker connection: 100 messages"
+    pass e "two relays bound to one producer publish through one broker connection: 100 messages"
   else
     fail e "$out holds $(queue_messages "$out" | cut -d' ' -f2 | sort -u | wc -l) of 100, $(shared_connections) connection(s)"
   fi
@@ -150,7 +150,7 @@ check_e() {
 
 check_f() {
   local listed
-  start_operator echo_once unroutable
+  start_relay echo_once unroutable
   producer void_out nowhere Xexchange=amq.direct Xmandatory=true
   bind void_out unroutable
   send_all unroutable 1 1 f

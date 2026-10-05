@@ -6,8 +6,8 @@ defmodule FlezhaRabbitmq.Consumer.Reader do
 
   It consumes `queue` with manual acknowledgement and a prefetch of
   `prefetch`. Deliveries collect until half the prefetch (so the broker keeps
-  sending while a batch is injected) or `batch_ms`, then go to the operator
-  with `Host.inject_many/4` in `:verdict` mode. The longest prefix the operator
+  sending while a batch is injected) or `batch_ms`, then go to the relay
+  with `Host.inject_many/4` in `:verdict` mode. The longest prefix the relay
   took is acknowledged with one `basic.ack`, and the rest are returned to the
   queue with one `basic.nack`. A returned delivery comes straight back, so after
   a refusal the reader waits along its backoff curve before it injects again.
@@ -65,7 +65,7 @@ defmodule FlezhaRabbitmq.Consumer.Reader do
   @doc """
   The facts the provider's `health/1` judges: the connection's failure, the
   run of refused batches and its last error. `:timeout` when the reader does
-  not answer, which is also what a reader waiting on the operator looks like.
+  not answer, which is also what a reader waiting on the relay looks like.
   """
   @spec probe(pid()) :: {:ok, map()} | :timeout
   def probe(pid), do: ProviderBehaviour.ask(pid, :health_probe)
@@ -261,7 +261,7 @@ defmodule FlezhaRabbitmq.Consumer.Reader do
   end
 
   @doc """
-  The deliveries the operator took, the longest prefix whose verdict is `:ok`,
+  The deliveries the relay took, the longest prefix whose verdict is `:ok`,
   and the rest, each with its verdict.
   """
   @spec split([term()], [term()]) :: {[term()], [{term(), term()}]}

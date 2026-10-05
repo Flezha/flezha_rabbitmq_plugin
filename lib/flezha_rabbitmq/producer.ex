@@ -3,7 +3,7 @@ defmodule FlezhaRabbitmq.Producer do
   The `rabbitmq_producer` provider: an `:on_input` / `:on_output` sink that
   publishes each payload to a RabbitMQ exchange.
 
-  Every operator bound to one plugin on a controller casts its payloads to ONE
+  Every relay bound to one plugin on a controller casts its payloads to ONE
   worker (`FlezhaRabbitmq.Producer.Publisher`), which owns the plugin's one
   connection, its queue, its confirm-mode channel and the per-output headers.
   The dispatch holds a delivery-guaranteed output for the worker to confirm or
@@ -147,7 +147,7 @@ defmodule FlezhaRabbitmq.Producer do
 
   defp check_exchange(_opts), do: :ok
 
-  @doc "One publisher per `{namespace, plugin_id}`: the operators bound to the plugin share it."
+  @doc "One publisher per `{namespace, plugin_id}`: the relays bound to the plugin share it."
   @impl true
   def worker_specs(opts), do: [{key(opts), Publisher.args(opts)}]
 

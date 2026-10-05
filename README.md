@@ -2,8 +2,8 @@
 
 The RabbitMQ plugin for Flezha: a plugin package, `flezha_rabbitmq`, with two providers.
 `rabbitmq_consumer` consumes one queue with a prefetch window and hands its messages to the
-operator in batches, acknowledging each one only after the operator took it. `rabbitmq_producer`
-publishes the payloads passing through an operator to an exchange: every operator bound to one
+relay in batches, acknowledging each one only after the relay took it. `rabbitmq_producer`
+publishes the payloads passing through a relay to an exchange: every relay bound to one
 plugin on a controller casts its payloads to one worker, which publishes them on a channel in
 confirm mode and confirms, retries or parks a delivery-guaranteed output. Both are built on the
 `amqp` client and reconnect after the broker goes away.
@@ -22,7 +22,7 @@ lib/flezha_rabbitmq/producer/publisher.ex  one publisher per plugin: queue, conf
 test/flezha_rabbitmq/                      unit tests against a bare channel, the integration
                                            test against a broker, the catalogue and docs checks
 test/support/                              the stand-ins for a controller and a channel
-test/e2e/                                  the relay fixture (an Elixir SDK runner) and run.sh
+test/e2e/                                  the e2e runner (an Elixir SDK runner) and run.sh
 ```
 
 ## Building and testing
@@ -40,7 +40,7 @@ RUSTLER_SKIP_COMPILATION=true mix format --check-formatted
 ```
 
 `mix test` runs with `--no-start`: no controller boots, and the tests start the providers'
-worker families and stand in for the broker's channel and the operator. The catalogue test
+worker families and stand in for the broker's channel and the relay. The catalogue test
 fails when a code the providers report is missing from the core's `flz_transport/errors.json`,
 and the docs test when an option table of `docs/plugins/rabbitmq.md` differs from its
 provider's declaration, printing the table to put there.
@@ -77,7 +77,7 @@ flz controller stop && flz controller start
 flz plugin list --installed
 ```
 
-Then enable `rabbitmq_consumer` or `rabbitmq_producer` on an operator as its page shows.
+Then enable `rabbitmq_consumer` or `rabbitmq_producer` on a relay as its page shows.
 
 ## The end-to-end run
 
@@ -86,11 +86,11 @@ Then enable `rabbitmq_consumer` or `rabbitmq_producer` on an operator as its pag
 `FLEZHA_RELEASE=/tmp/flzrel test/e2e/run.sh`; with no `FLEZHA_RELEASE` it refuses to run) and
 the dev broker. It first starts the controller without the package and checks the provider
 is unknown, then packages the plugin, installs it under a temporary plugin root, starts the
-controller and the relay fixture's runner, and checks: the client's applications started; one
-operator publishes 100 outputs to a queue and a second consumes them all; an effectively-once
-operator consuming 10 000 messages loses none across a killed and restarted controller; two
-operators bound to one producer publish through one broker connection; an unroutable
-guaranteed output becomes a dead letter; and 1 000 outputs of an effectively-once operator all
+controller and the e2e runner, and checks: the client's applications started; one
+relay publishes 100 outputs to a queue and a second consumes them all; an effectively-once
+relay consuming 10 000 messages loses none across a killed and restarted controller; two
+relays bound to one producer publish through one broker connection; an unroutable
+guaranteed output becomes a dead letter; and 1 000 outputs of an effectively-once relay all
 arrive across `docker compose restart rabbitmq`, every copy of one under one `message_id`. It
 prints PASS or FAIL per check, keeps its logs when one fails, and exits non-zero on any
 failure.
