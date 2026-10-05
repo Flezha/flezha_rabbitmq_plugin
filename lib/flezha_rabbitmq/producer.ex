@@ -1,6 +1,6 @@
 defmodule FlezhaRabbitmq.Producer do
   @moduledoc """
-  The `rabbitmq_producer` provider: an `:on_input` / `:on_output` sink that
+  The `rabbitmq_producer` provider: an `:on_input` / `:on_output` output plugin that
   publishes each payload to a RabbitMQ exchange.
 
   Every relay bound to one plugin on a controller casts its payloads to ONE
