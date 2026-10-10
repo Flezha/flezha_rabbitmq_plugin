@@ -94,3 +94,7 @@ guaranteed output becomes a dead letter; and 1 000 outputs of an effectively-onc
 arrive across `docker compose restart rabbitmq`, every copy of one under one `message_id`. It
 prints PASS or FAIL per check, keeps its logs when one fails, and exits non-zero on any
 failure.
+
+## Licence
+
+Apache-2.0, see `LICENSE`.
