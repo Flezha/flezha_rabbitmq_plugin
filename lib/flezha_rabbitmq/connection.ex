@@ -43,7 +43,7 @@ defmodule FlezhaRabbitmq.Connection do
               default: false,
               doc: "TLS to the broker, verifying it against the system's CA store"
             ],
-            ssl_options: [type: :any, doc: "Erlang `:ssl` options, passed through"],
+            ssl_options: [type: :list, doc: "Erlang `:ssl` options, passed through"],
             heartbeat_s: [
               type: :int,
               default: 30,
