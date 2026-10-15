@@ -25,10 +25,10 @@ defmodule FlezhaRabbitmq.Producer.Publisher do
 
   require Logger
 
+  alias Flezha.Config.Backoff
   alias Flezha.Error
   alias Flezha.Plugin.ProviderBehaviour
   alias Flezha.Process.Backlog
-  alias Flezha.SDK.Knob
   alias Flezha.State.Outbox
   alias FlezhaRabbitmq.Connection
 
@@ -62,6 +62,7 @@ defmodule FlezhaRabbitmq.Producer.Publisher do
     |> Map.merge(%{
       headers: Map.to_list(opts.headers),
       retry: %{
+        name: :rabbitmq_publish,
         base: opts.retry_backoff_ms,
         cap: opts.retry_max_backoff_ms,
         jitter: true,
@@ -390,13 +391,7 @@ defmodule FlezhaRabbitmq.Producer.Publisher do
     else
       attempt = retried |> Enum.map(& &1.attempt) |> Enum.min()
 
-      wait =
-        Knob.announce(
-          :rabbitmq_publish,
-          attempt,
-          {@provider, state.plugin_id},
-          Knob.delay(state.retry, attempt)
-        )
+      wait = Backoff.arm(state.retry, attempt, {@provider, state.plugin_id})
 
       arm_timer(state, :retry, wait, :retry)
     end

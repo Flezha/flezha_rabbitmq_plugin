@@ -18,8 +18,8 @@ defmodule FlezhaRabbitmq.Connection do
   while the link is up), and `attempt`, the connects failed in a row.
   """
 
+  alias Flezha.Config.Backoff
   alias Flezha.Plugin.Provider.Postgres.Connection, as: Password
-  alias Flezha.SDK.Knob
 
   # The client waits this long for the broker to accept a connection; a worker
   # is busy while it does.
@@ -90,6 +90,7 @@ defmodule FlezhaRabbitmq.Connection do
     %{
       host: "#{opts.host}:#{opts.port}",
       backoff: %{
+        name: :rabbitmq_reconnect,
         base: opts.reconnect_backoff_ms,
         cap: opts.reconnect_max_backoff_ms,
         jitter: true,
@@ -258,6 +259,5 @@ defmodule FlezhaRabbitmq.Connection do
 
   @doc "The wait before connect `attempt` (1-based) on `args`' curve, announced for `target`."
   @spec backoff(map(), pos_integer(), term()) :: non_neg_integer()
-  def backoff(args, attempt, target),
-    do: Knob.announce(:rabbitmq_reconnect, attempt, target, Knob.delay(args.backoff, attempt))
+  def backoff(args, attempt, target), do: Backoff.arm(args.backoff, attempt, target)
 end
