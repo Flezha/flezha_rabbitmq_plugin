@@ -55,6 +55,17 @@ defmodule FlezhaRabbitmq.ConsumerTest do
                Helpers.prepare(Consumer, Map.merge(@base, %{declare: true, routing_keys: "a,b"}))
     end
 
+    test "one name in two namespaces is two readers" do
+      keys =
+        for ns <- ["ns_a", "ns_b"] do
+          {:ok, opts} = Helpers.prepare(Consumer, @base, %{source_namespace: ns})
+          [{key, _args}] = Consumer.worker_specs(opts)
+          key
+        end
+
+      assert keys == [{"ns_a", "rabbit"}, {"ns_b", "rabbit"}]
+    end
+
     test "it feeds, is not shareable and declares its own verbs" do
       decl = Consumer.__provider__()
       assert {decl.name, decl.feeds, decl.shareable} == {"rabbitmq_consumer", true, false}

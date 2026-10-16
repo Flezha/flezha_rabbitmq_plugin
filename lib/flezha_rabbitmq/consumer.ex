@@ -14,6 +14,7 @@ defmodule FlezhaRabbitmq.Consumer do
   """
 
   alias Flezha.Plugin.Extension.Ctx
+  alias Flezha.Plugin.Provider.WorkerSup
   alias Flezha.Plugin.ProviderBehaviour
   alias FlezhaRabbitmq.Connection
   alias FlezhaRabbitmq.Consumer.Reader
@@ -103,7 +104,7 @@ defmodule FlezhaRabbitmq.Consumer do
 
   @doc "One reader per binding, started with `Consumer.Reader.args/1`."
   @impl true
-  def worker_specs(opts), do: [{opts.plugin_id, Reader.args(opts)}]
+  def worker_specs(opts), do: [{WorkerSup.key(opts), Reader.args(opts)}]
 
   @doc """
   Teardown is the host's. This callback exists so the provider can be hooked at
