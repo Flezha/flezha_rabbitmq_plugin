@@ -16,6 +16,7 @@ defmodule FlezhaRabbitmq.IntegrationTest do
   use Mimic
 
   import ExUnit.CaptureLog
+  import FlezhaTest.Helper.MessageTestHelper, only: [collect: 2]
 
   alias Flezha.Plugin.Extension.Ctx
   alias Flezha.State.Outbox
@@ -92,11 +93,9 @@ defmodule FlezhaRabbitmq.IntegrationTest do
   defp out(opts, body, metadata \\ %{"channel" => "out"}),
     do: {:ok, _ctx} = Producer.on_output(%Ctx.IO{message: body, metadata: metadata}, opts)
 
-  defp ingested(acc \\ []) do
-    receive do
-      {:ingest, body, metadata} -> ingested([{body, metadata} | acc])
-    after
-      500 -> Enum.reverse(acc)
+  defp ingested() do
+    collect after: 500 do
+      {:ingest, body, metadata} -> {body, metadata}
     end
   end
 
