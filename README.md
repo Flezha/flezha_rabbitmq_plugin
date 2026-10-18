@@ -9,7 +9,7 @@ confirm mode and confirms, retries or parks a delivery-guaranteed output. Both a
 `amqp` client and reconnect after the broker goes away.
 
 The contracts (options, acknowledgement, message ids, routing, confirms, health, telemetry) are
-the core's page `docs/plugins/rabbitmq.md`; this README covers the repository.
+the core's page `docs/public/plugins/rabbitmq.md`; this README covers the repository.
 
 ## Layout
 
@@ -42,7 +42,7 @@ RUSTLER_SKIP_COMPILATION=true mix format --check-formatted
 `mix test` runs with `--no-start`: no controller boots, and the tests start the providers'
 worker families and stand in for the broker's channel and the relay. The catalogue test
 fails when a code the providers report is missing from the core's `flz_transport/errors.json`,
-and the docs test when an option table of `docs/plugins/rabbitmq.md` differs from its
+and the docs test when an option table of `docs/public/plugins/rabbitmq.md` differs from its
 provider's declaration, printing the table to put there.
 
 The integration tests need the core's dev broker on `localhost:5672`, its management API on

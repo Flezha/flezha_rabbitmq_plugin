@@ -8,7 +8,7 @@ defmodule FlezhaRabbitmq.Producer do
   connection, its queue, its confirm-mode channel and the per-output headers.
   The dispatch holds a delivery-guaranteed output for the worker to confirm or
   park, and casts; nothing else runs per payload. Options, routing, headers,
-  message ids, confirms and telemetry: `docs/plugins/rabbitmq.md` in the core.
+  message ids, confirms and telemetry: `docs/public/plugins/rabbitmq.md` in the core.
   """
 
   alias Flezha.Plugin.Extension.Ctx

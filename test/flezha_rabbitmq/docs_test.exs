@@ -3,7 +3,7 @@ defmodule FlezhaRabbitmq.DocsTest do
 
   alias Flezha.Plugin.ProviderBehaviour.Options
 
-  @page Mix.Project.deps_paths()[:flezha] |> Path.join("docs/plugins/rabbitmq.md")
+  @page Mix.Project.deps_paths()[:flezha] |> Path.join("docs/public/plugins/rabbitmq.md")
 
   for provider <- [FlezhaRabbitmq.Consumer, FlezhaRabbitmq.Producer] do
     test "the core's rabbitmq.md carries the option table #{inspect(provider)} renders" do

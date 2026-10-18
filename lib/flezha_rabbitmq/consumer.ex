@@ -10,7 +10,7 @@ defmodule FlezhaRabbitmq.Consumer do
   RabbitMQ intends. One consumer per binding: not shareable, and refused on a
   partitioned relay, whose members a message's key decides between.
   Options, the input's metadata, acknowledgement, health and telemetry:
-  `docs/plugins/rabbitmq.md` in the core.
+  `docs/public/plugins/rabbitmq.md` in the core.
   """
 
   alias Flezha.Plugin.Extension.Ctx
