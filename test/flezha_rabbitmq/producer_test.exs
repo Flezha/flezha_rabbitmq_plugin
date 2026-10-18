@@ -17,9 +17,13 @@ defmodule FlezhaRabbitmq.ProducerTest do
   alias FlezhaRabbitmq.Producer
   alias FlezhaRabbitmq.Producer.Publisher
   alias FlezhaRabbitmq.Test.Helpers
+  alias FlezhaTest.Helper.NodeTestHelper
+  alias FlezhaTest.Helper.ProviderPrepare
+  alias FlezhaTest.Helper.Telemetry
 
   @base %{exchange: "fx", password: "hunter2"}
   @cell {"Rates", "t1", "EUR.USD"}
+  @key %{"flz.key" => "EUR.USD"}
 
   describe "options" do
     test "a plugin is prepared with its password held in a closure and its worker named" do
@@ -54,7 +58,7 @@ defmodule FlezhaRabbitmq.ProducerTest do
     test "carries the output's identity, the static headers and, guaranteed, its message id" do
       {:ok, opts} = Helpers.prepare(Producer, Map.put(@base, :headers, ~s({"app":"rates","v":2})))
       conf = Publisher.args(opts)
-      metadata = Helpers.guaranteed_metadata(@cell, 7)
+      metadata = ProviderPrepare.guaranteed_metadata(@cell, 7, @key)
 
       assert Publisher.properties(conf, metadata, Outbox.dedup_key(metadata)) == [
                message_id: "Rates/t1/EUR.USD/7.0/0",
@@ -78,10 +82,10 @@ defmodule FlezhaRabbitmq.ProducerTest do
     test "is routed by its static key, or by its own flz.key" do
       {:ok, opts} = Helpers.prepare(Producer, Map.put(@base, :routing_key, "rates"))
       conf = Publisher.args(opts)
-      assert Publisher.routing_key(conf, %{"flz.key" => "EUR.USD"}) == "rates"
+      assert Publisher.routing_key(conf, @key) == "rates"
 
       by_key = %{conf | routing_key_from: "flz_key"}
-      assert Publisher.routing_key(by_key, %{"flz.key" => "EUR.USD"}) == "EUR.USD"
+      assert Publisher.routing_key(by_key, @key) == "EUR.USD"
       assert Publisher.routing_key(by_key, %{}) == "rates"
     end
   end
@@ -91,7 +95,7 @@ defmodule FlezhaRabbitmq.ProducerTest do
 
     setup do
       test = self()
-      Helpers.stub_outbox_owner(@cell)
+      ProviderPrepare.stub_outbox_owner(@cell)
       Helpers.stub_broker()
       stub(AMQP.Confirm, :select, fn _chan -> :ok end)
       stub(AMQP.Confirm, :register_handler, fn _chan, _pid -> :ok end)
@@ -107,7 +111,7 @@ defmodule FlezhaRabbitmq.ProducerTest do
         :ok
       end)
 
-      Helpers.capture(
+      Telemetry.capture(
         for verb <- [:shipped, :retried, :failed, :overflowed, :reconnected],
             do: [:flezha, :plugin, :rabbitmq_producer, verb]
       )
@@ -126,7 +130,10 @@ defmodule FlezhaRabbitmq.ProducerTest do
         )
 
       {opts, pid} = Helpers.activate(Producer, opts)
-      if connected?, do: assert(Helpers.wait_until(fn -> health(opts) == :healthy end, 2_000))
+
+      if connected?,
+        do: assert(NodeTestHelper.wait_until(fn -> health(opts) == :healthy end, 2_000))
+
       {opts, pid}
     end
 
@@ -137,7 +144,7 @@ defmodule FlezhaRabbitmq.ProducerTest do
       assert {:ok, ^ctx} = Producer.on_output(ctx, opts)
     end
 
-    defp g(seq), do: Helpers.guaranteed_metadata(@cell, seq)
+    defp g(seq), do: ProviderPrepare.guaranteed_metadata(@cell, seq, @key)
 
     test "while the connection is down it is unhealthy and drop_oldest keeps the newest plain ones" do
       {opts, pid} = publisher(false, %{queue_max: 2})
@@ -153,7 +160,7 @@ defmodule FlezhaRabbitmq.ProducerTest do
       assert_receive {:telemetry, [_, _, _, :overflowed], %{count: 1}, %{policy: :drop_oldest}}
 
       refused = {:rabbitmq_connection_failed, %{host: "localhost:5672", reason: "econnrefused"}}
-      assert Helpers.wait_until(fn -> health(opts) == {:unhealthy, refused} end, 2_000)
+      assert NodeTestHelper.wait_until(fn -> health(opts) == {:unhealthy, refused} end, 2_000)
     end
 
     test "drop_newest keeps the oldest, drop_nothing keeps every one" do
@@ -191,7 +198,7 @@ defmodule FlezhaRabbitmq.ProducerTest do
       refute Keyword.has_key?(plain, :message_id)
 
       send(pid, {:basic_ack, 2, true})
-      assert :ok = Helpers.assert_confirmed([{:cursor, 1}])
+      assert :ok = ProviderPrepare.assert_confirmed([{:cursor, 1}])
       assert_receive {:telemetry, [_, _, _, :shipped], %{count: 2}, %{plugin_id: "rabbit"}}
       assert %{unconfirmed: 0} = Publisher.stats(pid)
     end
@@ -207,7 +214,7 @@ defmodule FlezhaRabbitmq.ProducerTest do
       assert again[:message_id] == first[:message_id]
 
       send(pid, {:basic_ack, 2, false})
-      assert :ok = Helpers.assert_confirmed([{:cursor, 1}])
+      assert :ok = ProviderPrepare.assert_confirmed([{:cursor, 1}])
     end
 
     test "retries that run out park it as rabbitmq.exhausted, and a plain nack is counted" do
@@ -275,7 +282,7 @@ defmodule FlezhaRabbitmq.ProducerTest do
       out(opts, "g1", g(1))
       out(opts, "p")
       assert %{queued: 2} = Publisher.stats(pid)
-      Helpers.stop(pid)
+      NodeTestHelper.ensure_stopped(pid, :shutdown)
 
       assert_receive {:parked, "1.0", "g1",
                       %{"code" => "rabbitmq.exhausted", "details" => %{"reason" => "stopped"}}, 0}

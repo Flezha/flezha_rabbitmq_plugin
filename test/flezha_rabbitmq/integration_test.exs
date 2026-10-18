@@ -23,6 +23,8 @@ defmodule FlezhaRabbitmq.IntegrationTest do
   alias FlezhaRabbitmq.Producer
   alias FlezhaRabbitmq.Producer.Publisher
   alias FlezhaRabbitmq.Test.Helpers
+  alias FlezhaTest.Helper.NodeTestHelper
+  alias FlezhaTest.Helper.ProviderPrepare
 
   @moduletag :rabbitmq_integration
   @moduletag timeout: 120_000
@@ -33,6 +35,7 @@ defmodule FlezhaRabbitmq.IntegrationTest do
     Path.join(Mix.Project.deps_paths()[:flezha], "docker/dev/docker-compose.yml")
   ]
   @cell {"Rates", "t1", "EUR.USD"}
+  @key %{"flz.key" => "EUR.USD"}
 
   setup_all do
     if System.get_env("RABBITMQ_INTEGRATION") != "1",
@@ -47,7 +50,7 @@ defmodule FlezhaRabbitmq.IntegrationTest do
   setup do
     {:ok, conn} = AMQP.Connection.open()
     {:ok, chan} = AMQP.Channel.open(conn)
-    on_exit(fn -> Helpers.stop(conn.pid) end)
+    on_exit(fn -> NodeTestHelper.ensure_stopped(conn.pid, :shutdown) end)
     {:ok, chan: chan, run: System.unique_integer([:positive])}
   end
 
@@ -75,7 +78,7 @@ defmodule FlezhaRabbitmq.IntegrationTest do
 
   defp producer(extra) do
     {opts, pid} = Helpers.activate(Producer, Map.merge(%{reconnect_backoff_ms: 100}, extra))
-    assert Helpers.wait_until(fn -> Producer.health(opts) == :healthy end, 5_000)
+    assert NodeTestHelper.wait_until(fn -> Producer.health(opts) == :healthy end, 5_000)
     {opts, pid}
   end
 
@@ -108,12 +111,14 @@ defmodule FlezhaRabbitmq.IntegrationTest do
   end
 
   test "a guaranteed output is held until the broker confirms it", %{chan: chan, run: run} do
-    Helpers.stub_outbox_owner(@cell)
+    ProviderPrepare.stub_outbox_owner(@cell)
     q = queue(chan, "flz-confirm-#{run}")
     {opts, _} = producer(%{plugin_id: "gc-#{run}", routing_key: q})
 
-    for seq <- 1..3, do: out(opts, "g#{seq}", Helpers.guaranteed_metadata(@cell, seq))
-    assert :ok = Helpers.assert_confirmed(for(seq <- 1..3, do: {:cursor, seq}), 5_000)
+    for seq <- 1..3,
+        do: out(opts, "g#{seq}", ProviderPrepare.guaranteed_metadata(@cell, seq, @key))
+
+    assert :ok = ProviderPrepare.assert_confirmed(for(seq <- 1..3, do: {:cursor, seq}), 5_000)
 
     {:ok, "g1", meta} = AMQP.Basic.get(chan, q)
     assert meta.message_id == "Rates/t1/EUR.USD/1.0/0"
@@ -143,7 +148,7 @@ defmodule FlezhaRabbitmq.IntegrationTest do
       "flz.seq" => "2.0"
     })
 
-    assert Helpers.wait_until(fn -> Publisher.stats(pid).unconfirmed == 0 end, 5_000)
+    assert NodeTestHelper.wait_until(fn -> Publisher.stats(pid).unconfirmed == 0 end, 5_000)
 
     assert {:ok, "e", %{headers: eur_headers}} = AMQP.Basic.get(chan, eur)
     assert {:ok, "u", _meta} = AMQP.Basic.get(chan, usd)
@@ -153,7 +158,7 @@ defmodule FlezhaRabbitmq.IntegrationTest do
 
   test "an unroutable guaranteed output is parked as rabbitmq.unroutable", %{chan: chan, run: run} do
     test = self()
-    Helpers.stub_outbox_owner(@cell)
+    ProviderPrepare.stub_outbox_owner(@cell)
 
     stub(Outbox, :park, fn md, _body, error, _n ->
       send(test, {:parked, md["flz.seq"], error}) && :ok
@@ -166,7 +171,7 @@ defmodule FlezhaRabbitmq.IntegrationTest do
     {opts, _} =
       producer(%{plugin_id: "ur-#{run}", exchange: fx, routing_key: "nowhere", mandatory: true})
 
-    out(opts, "g1", Helpers.guaranteed_metadata(@cell, 1))
+    out(opts, "g1", ProviderPrepare.guaranteed_metadata(@cell, 1, @key))
     assert_receive {:parked, "1.0", error}, 5_000
 
     assert %{"code" => "rabbitmq.unroutable", "details" => %{"routing_key" => "nowhere"}} =
@@ -202,7 +207,7 @@ defmodule FlezhaRabbitmq.IntegrationTest do
     host = Helpers.stand_in_host()
     {_, _} = consumer(q, host, %{plugin_id: "c1-#{run}", prefetch: 10})
     {_, _} = consumer(q, host, %{plugin_id: "c2-#{run}", prefetch: 10})
-    assert Helpers.wait_until(fn -> consumers(q) == 2 end, 5_000)
+    assert NodeTestHelper.wait_until(fn -> consumers(q) == 2 end, 5_000)
 
     for n <- 1..1_000, do: :ok = AMQP.Basic.publish(chan, "", q, "m#{n}", message_id: "#{n}")
     taken = ingested()
@@ -226,7 +231,7 @@ defmodule FlezhaRabbitmq.IntegrationTest do
             reconnect_backoff_ms: 5_000
           })
 
-        assert Helpers.wait_until(
+        assert NodeTestHelper.wait_until(
                  fn ->
                    match?(
                      {:unhealthy, {:rabbitmq_channel_closed, %{code: 404}}},
@@ -244,16 +249,16 @@ defmodule FlezhaRabbitmq.IntegrationTest do
     q = queue(chan, "flz-restart-#{run}")
     {popts, _} = producer(%{plugin_id: "rp-#{run}", routing_key: q})
     {copts, _} = consumer(q, Helpers.stand_in_host(), %{plugin_id: "rc-#{run}"})
-    assert Helpers.wait_until(fn -> Consumer.health(copts) == :healthy end, 5_000)
+    assert NodeTestHelper.wait_until(fn -> Consumer.health(copts) == :healthy end, 5_000)
 
     log =
       warnings(fn ->
         {_, 0} = System.cmd("docker", @compose ++ ["stop", "rabbitmq"], stderr_to_stdout: true)
-        assert Helpers.wait_until(fn -> Producer.health(popts) != :healthy end, 10_000)
+        assert NodeTestHelper.wait_until(fn -> Producer.health(popts) != :healthy end, 10_000)
         assert Consumer.health(copts) != :healthy
         {_, 0} = System.cmd("docker", @compose ++ ["start", "rabbitmq"], stderr_to_stdout: true)
-        assert Helpers.wait_until(fn -> Producer.health(popts) == :healthy end, 60_000)
-        assert Helpers.wait_until(fn -> Consumer.health(copts) == :healthy end, 60_000)
+        assert NodeTestHelper.wait_until(fn -> Producer.health(popts) == :healthy end, 60_000)
+        assert NodeTestHelper.wait_until(fn -> Consumer.health(copts) == :healthy end, 60_000)
       end)
 
     assert log =~ "rp-#{run} lost its connection"
@@ -267,7 +272,7 @@ defmodule FlezhaRabbitmq.IntegrationTest do
     plugin = "share-#{run}"
     {opts, pid} = producer(%{plugin_id: plugin})
     {_again, ^pid} = Helpers.activate(Producer, %{plugin_id: opts.plugin_id})
-    assert Helpers.wait_until(fn -> connections("flezha #{plugin} ") == 1 end, 10_000)
+    assert NodeTestHelper.wait_until(fn -> connections("flezha #{plugin} ") == 1 end, 10_000)
   end
 
   # The broker's own view, through its management API.

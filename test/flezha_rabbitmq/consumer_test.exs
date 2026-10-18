@@ -14,6 +14,8 @@ defmodule FlezhaRabbitmq.ConsumerTest do
   alias FlezhaRabbitmq.Consumer
   alias FlezhaRabbitmq.Consumer.Reader
   alias FlezhaRabbitmq.Test.Helpers
+  alias FlezhaTest.Helper.NodeTestHelper
+  alias FlezhaTest.Helper.Telemetry
 
   @base %{queue: "orders", channel: "in", password: "hunter2"}
 
@@ -155,7 +157,7 @@ defmodule FlezhaRabbitmq.ConsumerTest do
       stub(AMQP.Basic, :ack, fn _chan, tag, opts -> send(test, {:ack, tag, opts}) && :ok end)
       stub(AMQP.Basic, :nack, fn _chan, tag, opts -> send(test, {:nack, tag, opts}) && :ok end)
 
-      Helpers.capture([
+      Telemetry.capture([
         [:flezha, :plugin, :rabbitmq_consumer, :shipped],
         [:flezha, :plugin, :rabbitmq_consumer, :failed],
         [:flezha, :plugin, :rabbitmq_consumer, :unacked],
@@ -174,7 +176,12 @@ defmodule FlezhaRabbitmq.ConsumerTest do
         |> Map.merge(extra)
 
       {opts, pid} = Helpers.activate(Consumer, opts, %{overwatcher_pid: host})
-      assert Helpers.wait_until(fn -> Consumer.health(owned(opts, pid)) == :healthy end, 2_000)
+
+      assert NodeTestHelper.wait_until(
+               fn -> Consumer.health(owned(opts, pid)) == :healthy end,
+               2_000
+             )
+
       {opts, pid}
     end
 
@@ -225,7 +232,7 @@ defmodule FlezhaRabbitmq.ConsumerTest do
 
       # Nothing is injected while it waits; then the returned deliveries go.
       deliver(pid, [5, 6, 7, 8])
-      assert Helpers.wait_until(fn -> length(:sys.get_state(pid).held) == 4 end, 2_000)
+      assert NodeTestHelper.wait_until(fn -> length(:sys.get_state(pid).held) == 4 end, 2_000)
       refute_received {:ingest, "p5", _}
       send(pid, :resume)
       assert_receive {:ingest, "p5", _}
@@ -241,7 +248,7 @@ defmodule FlezhaRabbitmq.ConsumerTest do
           deliver(pid, [1, 2])
           assert_receive {:nack, 2, [multiple: true, requeue: true]}
           deliver(pid, [3, 4, 5])
-          assert Helpers.wait_until(fn -> length(:sys.get_state(pid).held) == 3 end, 2_000)
+          assert NodeTestHelper.wait_until(fn -> length(:sys.get_state(pid).held) == 3 end, 2_000)
           send(pid, :resume)
           assert_receive {:nack, 5, [multiple: true, requeue: true]}
         end)
@@ -313,7 +320,7 @@ defmodule FlezhaRabbitmq.ConsumerTest do
       {opts, pid} = Helpers.activate(Consumer, opts, %{overwatcher_pid: host})
       assert_receive :consume, 2_000
 
-      assert Helpers.wait_until(
+      assert NodeTestHelper.wait_until(
                fn ->
                  Consumer.health(owned(opts, pid)) ==
                    {:unhealthy,

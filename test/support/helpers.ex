@@ -1,9 +1,8 @@
 defmodule FlezhaRabbitmq.Test.Helpers do
   @moduledoc """
-  What the package's tests need from a running controller and nothing more: a
-  poll, a telemetry capture, a plugin prepared and activated as the extension
-  table does it, a stand-in relay, a channel without a broker, and the
-  outbox owner a delivery-guaranteed output answers to.
+  What the package's tests need beyond the core's shared helpers: a plugin
+  prepared and activated as the extension table does it, a stand-in relay, and
+  a channel without a broker.
   """
 
   import ExUnit.Callbacks, only: [on_exit: 1]
@@ -11,50 +10,7 @@ defmodule FlezhaRabbitmq.Test.Helpers do
   alias Flezha.Plugin.Extension.Table.Entry
   alias Flezha.Plugin.Extension.Table.Workers
   alias Flezha.Plugin.ProviderBehaviour.Options
-  alias Flezha.State.Outbox
-  alias Flezha.State.Supervisor, as: StateSupervisor
-
-  @doc "Poll `fun` every `interval_ms` until it is truthy or `timeout_ms` passes."
-  def wait_until(fun, timeout_ms, interval_ms \\ 50) do
-    deadline = System.monotonic_time(:millisecond) + timeout_ms
-    poll(fun, deadline, interval_ms)
-  end
-
-  defp poll(fun, deadline, interval_ms) do
-    case fun.() do
-      falsy when falsy in [nil, false] ->
-        if System.monotonic_time(:millisecond) >= deadline do
-          falsy
-        else
-          Process.sleep(interval_ms)
-          poll(fun, deadline, interval_ms)
-        end
-
-      truthy ->
-        truthy
-    end
-  end
-
-  @doc """
-  Forward every emission of `events` to the calling process as
-  `{:telemetry, event, measurements, metadata}` until the test exits.
-  """
-  def capture(events) do
-    test_pid = self()
-    handler_id = {__MODULE__, events, System.unique_integer([:positive])}
-
-    :ok =
-      :telemetry.attach_many(
-        handler_id,
-        events,
-        fn event, measurements, metadata, _config ->
-          send(test_pid, {:telemetry, event, measurements, metadata})
-        end,
-        nil
-      )
-
-    on_exit(fn -> :telemetry.detach(handler_id) end)
-  end
+  alias FlezhaTest.Helper.NodeTestHelper
 
   @doc "The options `provider` prepares from `opts`, as the extension table builds them."
   def prepare(provider, opts, host \\ %{}) do
@@ -86,15 +42,8 @@ defmodule FlezhaRabbitmq.Test.Helpers do
       Workers.start(%{entries: %{}, monitors: %{}}, plugin_id, provider, prepared, & &1.())
 
     pid = Entry.owned_pid(started.entries[plugin_id])
-    on_exit(fn -> stop(pid) end)
+    on_exit(fn -> NodeTestHelper.ensure_stopped(pid, :shutdown) end)
     {prepared, pid}
-  end
-
-  @doc "Stop the worker `pid`, as its supervisor would, if it is still alive."
-  def stop(pid) do
-    GenServer.stop(pid, :shutdown)
-  catch
-    :exit, _gone -> :ok
   end
 
   @doc """
@@ -141,55 +90,6 @@ defmodule FlezhaRabbitmq.Test.Helpers do
 
     receive do
       {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
-    end
-  end
-
-  @doc "Register the calling test as the outbox owner of `cell_id`."
-  def stub_outbox_owner(cell_id) do
-    case Registry.start_link(keys: :unique, name: StateSupervisor.registry_name()) do
-      {:ok, _} -> :ok
-      {:error, {:already_started, _}} -> :ok
-    end
-
-    {:ok, _} = Registry.register(StateSupervisor.registry_name(), cell_id, nil)
-    :ok
-  end
-
-  @doc """
-  Metadata a durable outbox flush would stamp on one output of `cell_id`'s
-  entry `seq`: identity plus the confirmation token the owning writer waits on.
-  """
-  def guaranteed_metadata({rc, sh, pk} = cell_id, seq, extra \\ %{}) do
-    Map.merge(
-      %{
-        "channel" => "out",
-        "flz.key" => "EUR.USD",
-        "flz.cell" => "#{rc}/#{sh}/#{pk}",
-        "flz.seq" => "#{seq}.0",
-        "flz.epoch" => "0",
-        Outbox.ack_key() => Outbox.token(cell_id, {:cursor, seq})
-      },
-      extra
-    )
-  end
-
-  @doc "Wait until every one of `keys` has been confirmed to the calling owner."
-  def assert_confirmed(keys, timeout \\ 2_000), do: await_confirmed(MapSet.new(keys), timeout)
-
-  defp await_confirmed(remaining, timeout) do
-    if MapSet.size(remaining) == 0 do
-      :ok
-    else
-      receive do
-        {:"$gen_cast", {:outbox_confirmed_many, keys}} ->
-          await_confirmed(Enum.reduce(keys, remaining, &MapSet.delete(&2, &1)), timeout)
-
-        {:"$gen_cast", {:outbox_confirmed, key}} ->
-          await_confirmed(MapSet.delete(remaining, key), timeout)
-      after
-        timeout ->
-          ExUnit.Assertions.flunk("never confirmed: #{inspect(MapSet.to_list(remaining))}")
-      end
     end
   end
 end
