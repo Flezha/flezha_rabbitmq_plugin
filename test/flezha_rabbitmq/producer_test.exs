@@ -90,6 +90,33 @@ defmodule FlezhaRabbitmq.ProducerTest do
     end
   end
 
+  describe "the outbox owner stand-in" do
+    # The previous test, which may have started the registry, ends with
+    # `:shutdown` while the next one already registers in it.
+    test "outlives the test that started its registry" do
+      test = self()
+
+      first =
+        spawn(fn ->
+          ProviderPrepare.stub_outbox_owner(@cell)
+          send(test, :registered)
+          Process.sleep(:infinity)
+        end)
+
+      assert_receive :registered, 2_000
+      held = Process.whereis(Flezha.State.Supervisor.registry_name())
+
+      :ok = :sys.suspend(held)
+      Process.exit(first, :shutdown)
+      ProviderPrepare.stub_outbox_owner({"Rates", "t1", "GBP.USD"})
+      :ok = :sys.resume(held)
+
+      # Answered once the registry has read what reached it while it was held.
+      _ = :sys.get_state(held)
+      assert Process.alive?(held)
+    end
+  end
+
   describe "the publisher" do
     setup :set_mimic_global
 
