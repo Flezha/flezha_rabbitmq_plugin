@@ -143,13 +143,10 @@ defmodule FlezhaRabbitmq.Producer do
     ProviderBehaviour.pid_health(
       WorkerSup.worker_pid(__MODULE__, key(opts)),
       [absent: :not_running, dead: :worker_dead],
-      fn pid ->
-        case Publisher.probe(pid) do
-          {:ok, %{failure: nil}} -> :healthy
-          {:ok, %{failure: failure}} -> {:unhealthy, failure}
-          :timeout -> {:fail_open, :probe_timeout}
-        end
-      end
+      &Publisher.probe_verdict(&1, fn
+        %{failure: nil} -> :healthy
+        %{failure: failure} -> {:unhealthy, failure}
+      end)
     )
   end
 
