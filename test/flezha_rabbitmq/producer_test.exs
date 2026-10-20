@@ -179,7 +179,7 @@ defmodule FlezhaRabbitmq.ProducerTest do
     defp g(seq), do: ProviderPrepare.guaranteed_metadata(@cell, seq, @key)
 
     test "while the connection is down it is unhealthy and drop_oldest keeps the newest plain ones" do
-      {opts, pid} = publisher(false, %{queue_max: 2})
+      {opts, pid} = publisher(false, %{queue_max: 2, queue_overflow: :drop_oldest})
       for n <- 1..3, do: out(opts, "p#{n}")
 
       assert %{queued: 2, overflowed: 1} = Publisher.stats(pid)
@@ -195,7 +195,7 @@ defmodule FlezhaRabbitmq.ProducerTest do
       assert NodeTestHelper.wait_until(fn -> health(opts) == {:unhealthy, refused} end, 2_000)
     end
 
-    test "drop_newest keeps the oldest, drop_nothing keeps every one" do
+    test "drop_newest keeps the oldest" do
       {opts, pid} = publisher(false, %{queue_max: 2, queue_overflow: :drop_newest})
       for n <- 1..3, do: out(opts, "p#{n}")
 
@@ -203,16 +203,27 @@ defmodule FlezhaRabbitmq.ProducerTest do
                "p1",
                "p2"
              ]
-
-      {opts, pid} =
-        publisher(false, %{plugin_id: "keeper", queue_max: 2, queue_overflow: :drop_nothing})
-
-      for n <- 1..3, do: out(opts, "p#{n}")
-      assert %{queued: 3, overflowed: 0} = Publisher.stats(pid)
     end
 
-    test "a guaranteed output always waits, and a plain one finds no plain one to drop" do
-      {opts, pid} = publisher(false, %{queue_max: 1})
+    # KB-811: a guaranteed output went past the bound with no deadline.
+    test "under drop_nothing a dispatch waits for room, then its guaranteed output is parked" do
+      {opts, pid} = publisher(false, %{queue_max: 1, queue_block_timeout_ms: 50})
+      out(opts, "g1", g(1))
+      # On its way when the queue filled: admitted past the bound, which raises the flag.
+      out(opts, "g2", g(2))
+      assert %{queued: 2, waiting: 0} = Publisher.stats(pid)
+
+      out(opts, "g3", g(3))
+
+      assert_receive {:parked, "3.0", "g3",
+                      %{"code" => "rabbitmq.exhausted", "details" => %{"reason" => "queue_full"}},
+                      0}
+
+      assert %{queued: 2, waiting: 0, overflowed: 1} = Publisher.stats(pid)
+    end
+
+    test "under drop_oldest a guaranteed output is kept, and a plain one finds no plain one to drop" do
+      {opts, pid} = publisher(false, %{queue_max: 1, queue_overflow: :drop_oldest})
       out(opts, "g1", g(1))
       out(opts, "g2", g(2))
       out(opts, "plain")

@@ -6,9 +6,13 @@ defmodule FlezhaRabbitmq.Producer.Publisher do
   broker's confirm and every message's headers.
 
   A payload is published as soon as it is taken off the mailbox while the
-  channel is up. While it is down payloads wait in a `Flezha.Process.Backlog`:
-  a guaranteed output always, past `queue_max` if it must, and a plain one as
-  `queue_overflow` decides (`Backlog.admit/5`).
+  channel is up. While it is down payloads wait in a `Flezha.Process.Backlog`,
+  which admits them as `queue_overflow` decides (`Backlog.offer/5`): under
+  `:drop_nothing` a dispatch waits for room while the queue is full, at most
+  `queue_block_timeout_ms`, and then overflows, counted, and parked with
+  `rabbitmq.exhausted` and the reason `queue_full` when guaranteed. Under
+  `:drop_oldest` and `:drop_newest` a plain output is dropped and counted, and a
+  guaranteed one is kept, past `queue_max` if it must.
 
   A guaranteed output carries its `Outbox.dedup_key/1` as `message_id` and is
   confirmed on the broker's ack. A nack, or a lost connection before the ack,
@@ -55,7 +59,8 @@ defmodule FlezhaRabbitmq.Producer.Publisher do
       :retries,
       :queue_max,
       :queue_max_bytes,
-      :queue_overflow
+      :queue_overflow,
+      :queue_block_timeout_ms
     ])
     |> Map.merge(%{
       headers: Map.to_list(opts.headers),
@@ -82,13 +87,19 @@ defmodule FlezhaRabbitmq.Producer.Publisher do
   def init(args) do
     # A stop parks what it holds and closes the connection.
     Process.flag(:trap_exit, true)
+    flag = Backlog.flag(args[:name])
 
     state =
       args
-      |> Map.drop([:name, :queue_max, :queue_max_bytes])
+      |> Map.drop([:name, :queue_max, :queue_max_bytes, :queue_block_timeout_ms])
       |> Map.merge(Connection.initial(args.link_args))
       |> Map.merge(%{
-        backlog: Backlog.new(args.queue_max_bytes, args.queue_max),
+        backlog:
+          Backlog.new(args.queue_max_bytes, args.queue_max,
+            policy: args.queue_overflow,
+            block_ms: args.queue_block_timeout_ms,
+            flag: flag
+          ),
         seqno: 1,
         unconfirmed: :gb_trees.empty(),
         ids: %{},
@@ -102,13 +113,19 @@ defmodule FlezhaRabbitmq.Producer.Publisher do
 
   @impl true
   def handle_cast({:publish, body, metadata}, state),
-    do: {:noreply, state |> admit(entry(body, metadata)) |> dispatch()}
+    do: {:noreply, state |> admit(entry(body, metadata), :cast) |> dispatch()}
 
+  # A dispatch that read the full flag up: answered once its output is in, or
+  # has overflowed.
   @impl true
+  def handle_call({:publish, body, metadata}, from, state),
+    do: {:noreply, state |> admit(entry(body, metadata), {:wait, from}) |> dispatch()}
+
   def handle_call(:stats, _from, state) do
     {:reply,
      %{
        queued: state.backlog.frames,
+       waiting: Backlog.waiting(state.backlog),
        unconfirmed: :gb_trees.size(state.unconfirmed),
        delayed: length(state.delayed),
        overflowed: state.overflowed
@@ -128,6 +145,11 @@ defmodule FlezhaRabbitmq.Producer.Publisher do
 
   def handle_info({:basic_return, _payload, meta}, state), do: {:noreply, returned(state, meta)}
 
+  def handle_info({:block_timeout, _tag, waiter}, state) do
+    {backlog, overflowed} = Backlog.block_timeout(state.backlog, waiter)
+    {:noreply, overflow(%{state | backlog: backlog}, overflowed)}
+  end
+
   def handle_info(:retry, state) do
     delayed = Enum.map(state.delayed, &{&1, byte_size(&1.body)})
     state = timer_fired(state, :retry)
@@ -145,8 +167,10 @@ defmodule FlezhaRabbitmq.Producer.Publisher do
 
   @impl true
   def terminate(_reason, state) do
+    {waiting, backlog} = Backlog.release_waiting(state.backlog)
+
     held =
-      Backlog.to_list(state.backlog) ++ state.delayed ++ :gb_trees.values(state.unconfirmed)
+      Backlog.to_list(backlog) ++ waiting ++ state.delayed ++ :gb_trees.values(state.unconfirmed)
 
     for entry <- held,
         Outbox.guaranteed?(entry.metadata),
@@ -211,19 +235,23 @@ defmodule FlezhaRabbitmq.Producer.Publisher do
   defp entry(body, metadata),
     do: %{body: body, metadata: metadata, message_id: Outbox.dedup_key(metadata), attempt: 0}
 
-  # A guaranteed output always waits; the policy decides for a plain one.
-  defp admit(state, entry) do
+  # Under a drop policy a guaranteed output is kept, past the bound if it must:
+  # the outbox bounds how many there are.
+  defp admit(%{queue_overflow: policy} = state, entry, waiter) do
     size = byte_size(entry.body)
 
-    if Outbox.guaranteed?(entry.metadata) do
+    if policy != :drop_nothing and Outbox.guaranteed?(entry.metadata) do
       %{state | backlog: Backlog.push(state.backlog, entry, size)}
     else
-      plain? = &(not Outbox.guaranteed?(&1.metadata))
-
-      case Backlog.admit(state.backlog, entry, size, state.queue_overflow, plain?) do
-        {:queued, backlog, dropped} -> overflow(%{state | backlog: backlog}, dropped)
+      case Backlog.offer(
+             state.backlog,
+             entry,
+             size,
+             waiter,
+             &(not Outbox.guaranteed?(&1.metadata))
+           ) do
         {:refused, backlog, dropped} -> overflow(%{state | backlog: backlog}, dropped ++ [entry])
-        {:full, backlog} -> %{state | backlog: Backlog.push(backlog, entry, size)}
+        {_queued_or_waiting, backlog, dropped} -> overflow(%{state | backlog: backlog}, dropped)
       end
     end
   end
@@ -231,6 +259,10 @@ defmodule FlezhaRabbitmq.Producer.Publisher do
   defp overflow(state, []), do: state
 
   defp overflow(state, dropped) do
+    for entry <- dropped,
+        Outbox.guaranteed?(entry.metadata),
+        do: park(entry, "rabbitmq.exhausted", %{reason: :queue_full}, entry.attempt)
+
     n = length(dropped)
     emit(state, :overflowed, n, %{policy: state.queue_overflow})
     %{state | overflowed: state.overflowed + n}
@@ -242,10 +274,15 @@ defmodule FlezhaRabbitmq.Producer.Publisher do
 
   defp dispatch(state) do
     case Backlog.out(state.backlog) do
+      {:empty, %{full: true} = backlog} -> drained(state, Backlog.room(backlog))
       {:empty, _backlog} -> state
       {entry, backlog} -> dispatch(publish(%{state | backlog: backlog}, entry))
     end
   end
+
+  # The dispatches that waited for room come in, and go out in turn.
+  defp drained(state, %{frames: 0} = backlog), do: %{state | backlog: backlog}
+  defp drained(state, backlog), do: dispatch(%{state | backlog: backlog})
 
   defp publish(state, entry) do
     case AMQP.Basic.publish(

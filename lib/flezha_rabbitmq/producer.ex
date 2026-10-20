@@ -15,6 +15,7 @@ defmodule FlezhaRabbitmq.Producer do
   alias Flezha.Plugin.Provider.WorkerSup
   alias Flezha.Plugin.ProviderBehaviour
   alias Flezha.Plugin.ProviderBehaviour.Options
+  alias Flezha.Process.Backlog
   alias Flezha.State.Outbox
   alias FlezhaRabbitmq.Connection
   alias FlezhaRabbitmq.Producer.Publisher
@@ -76,32 +77,14 @@ defmodule FlezhaRabbitmq.Producer do
             doc:
               "Publishes again of a guaranteed output the broker refused or a lost connection left unconfirmed"
           ],
-          queue_max: [
-            type: :int,
-            default: 10_000,
-            min: 1,
-            doc: "Payloads waiting while the connection is down"
-          ],
-          queue_max_bytes: [
-            type: :int,
-            default: 67_108_864,
-            min: 1,
-            doc: "Payload bytes waiting while the connection is down"
-          ],
-          queue_overflow: [
-            type: :enum,
-            values: [:drop_nothing, :drop_oldest, :drop_newest],
-            default: :drop_oldest,
-            doc:
-              "What a full queue does with a plain output: keep it past the bound, drop the oldest plain one, or drop the newest; a guaranteed one always waits"
-          ],
           # The worker this plugin's payloads are cast to, named once here so the
           # dispatch builds nothing per payload.
           publisher: [type: :any, internal: true, transient: true]
         ] ++
         Options.channel(:out, "payload") ++
         Options.plugin_id("the id it was enabled under") ++
-        Options.retry(retry_max_backoff_ms: 10_000),
+        Options.retry(retry_max_backoff_ms: 10_000) ++
+        Options.queue(),
     worker: [module: Publisher, restart: :transient]
 
   @impl true
@@ -140,11 +123,11 @@ defmodule FlezhaRabbitmq.Producer do
   @impl true
   def on_output(%Ctx.IO{} = ctx, opts), do: publish(ctx, opts)
 
-  # The hold and the cast, nothing else: the worker builds the message.
+  # The hold and the dispatch, nothing else: the worker builds the message.
   defp publish(%Ctx.IO{message: message, metadata: metadata} = ctx, opts) do
     if ProviderBehaviour.in_channel?(metadata, opts.filter_channel) do
       Outbox.hold(metadata)
-      GenServer.cast(opts.publisher, {:publish, message, metadata})
+      Backlog.dispatch(opts.publisher, {:publish, message, metadata})
     end
 
     {:ok, ctx}
