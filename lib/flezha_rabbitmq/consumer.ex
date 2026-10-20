@@ -13,8 +13,6 @@ defmodule FlezhaRabbitmq.Consumer do
   `docs/public/plugins/rabbitmq.md` in the core.
   """
 
-  alias Flezha.Plugin.Extension.Ctx
-  alias Flezha.Plugin.Provider.WorkerSup
   alias Flezha.Plugin.ProviderBehaviour
   alias Flezha.Plugin.ProviderBehaviour.Options
   alias FlezhaRabbitmq.Connection
@@ -22,8 +20,8 @@ defmodule FlezhaRabbitmq.Consumer do
 
   use ProviderBehaviour,
     name: "rabbitmq_consumer",
-    feeds: true,
     shareable: false,
+    source: [partitioned: :refuse],
     telemetry: [reconnected: :event, unacked: :metric],
     options:
       Connection.rows() ++
@@ -68,14 +66,7 @@ defmodule FlezhaRabbitmq.Consumer do
   @doc "Validate and prepare. Connects to nothing: the reader does, at activation."
   @impl true
   def init_provider(opts) do
-    with :ok <- ProviderBehaviour.require_entry_channel(opts, __MODULE__),
-         :ok <- ProviderBehaviour.refuse_partitioned(opts, __MODULE__),
-         :ok <- check_topology(opts) do
-      {:ok,
-       opts
-       |> Connection.prepare()
-       |> Map.put(:plugin_id, opts.plugin_id || opts[:source_plugin_id])}
-    end
+    with :ok <- check_topology(opts), do: {:ok, Connection.prepare(opts)}
   end
 
   defp check_topology(%{queue: ""}), do: ProviderBehaviour.refuse_value(:queue, "")
@@ -88,48 +79,9 @@ defmodule FlezhaRabbitmq.Consumer do
 
   defp check_topology(_opts), do: :ok
 
-  @doc "One reader per binding, started with `Consumer.Reader.args/1`."
-  @impl true
-  def worker_specs(opts), do: [{WorkerSup.key(opts), Reader.args(opts)}]
-
-  @doc """
-  Teardown is the host's. This callback exists so the provider can be hooked at
-  all: every hook requires the matching export.
-  """
-  @impl true
-  def on_terminate(%Ctx.Terminate{}, _opts), do: :ok
-
-  @doc """
-  Health verdict from the reader: a lost connection or channel names its
-  failure (a missing queue is a channel the broker closed with 404), and
-  `failure_threshold` refused batches in a row name the refusal.
-  """
-  @impl true
-  @spec health(map()) :: ProviderBehaviour.health_verdict()
-  def health(opts) do
-    ProviderBehaviour.worker_health(
-      opts,
-      [
-        absent: :no_reader,
-        dead: :reader_dead,
-        budget_ms: 2 * ProviderBehaviour.probe_budget_ms()
-      ],
-      fn pid ->
-        case Reader.probe(pid) do
-          {:ok, facts} -> verdict(facts, opts)
-          :timeout -> {:fail_open, :probe_timeout}
-        end
-      end
-    )
-  end
-
+  # Before the source's shared verdicts: a lost connection or channel names its
+  # failure (a missing queue is a channel the broker closed with 404).
   defp verdict(%{failure: failure}, _opts) when failure != nil, do: {:unhealthy, failure}
-
-  defp verdict(%{consecutive_failures: n, last_error: error}, opts)
-       when n >= opts.failure_threshold,
-       do: {:unhealthy, {:read_failed, error}}
-
-  defp verdict(_facts, _opts), do: :healthy
 
   @doc "What `flz relay info` shows beneath the plugin: the queue and its verdict."
   @impl true

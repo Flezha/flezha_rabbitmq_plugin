@@ -20,7 +20,9 @@ defmodule FlezhaRabbitmq.Producer.Publisher do
   A stop parks every guaranteed output still held, as `http_push` does.
   """
 
-  use GenServer
+  # The fact the provider's `health/1` judges: the connection's failure. A
+  # publisher serves every relay bound to its plugin, so no one relay is its host.
+  use Flezha.Plugin.Provider.Worker, facts: [:failure], host: false
   use Flezha.Process.Timer, keys: [:connect, :retry]
 
   require Logger
@@ -35,10 +37,6 @@ defmodule FlezhaRabbitmq.Producer.Publisher do
   @provider :rabbitmq_producer
 
   @identity ["flz.key", "flz.cell", "flz.seq", "flz.epoch"]
-
-  @spec start_link(map()) :: GenServer.on_start()
-  def start_link(args) when is_map(args),
-    do: GenServer.start_link(__MODULE__, args, name: Map.fetch!(args, :name))
 
   @doc "The publisher's start arguments, from the plugin's prepared options."
   @spec args(map()) :: map()
@@ -71,10 +69,6 @@ defmodule FlezhaRabbitmq.Producer.Publisher do
       link_args: Connection.args(opts)
     })
   end
-
-  @doc "The facts the provider's `health/1` judges: the connection's failure."
-  @spec probe(pid()) :: {:ok, map()} | :timeout
-  def probe(pid), do: ProviderBehaviour.ask(pid, :health_probe)
 
   @doc "Counters and queue depths, for tests; `%{}` when the publisher does not answer."
   @spec stats(GenServer.server()) :: map()
@@ -145,11 +139,6 @@ defmodule FlezhaRabbitmq.Producer.Publisher do
       {:lost, failure} -> {:noreply, lose(state, failure)}
       :other -> {:noreply, state}
     end
-  end
-
-  def handle_info({:health_probe, from, ref}, state) do
-    send(from, {ref, %{failure: state.failure}})
-    {:noreply, state}
   end
 
   def handle_info(_other, state), do: {:noreply, state}

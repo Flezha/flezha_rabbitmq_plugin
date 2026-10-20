@@ -24,21 +24,19 @@ defmodule FlezhaRabbitmq.Consumer.Reader do
   """
 
   alias Flezha.Plugin.Host
+  alias Flezha.Plugin.Provider.Worker
   alias Flezha.Plugin.ProviderBehaviour
-  alias Flezha.Process.Watch
   alias FlezhaRabbitmq.Connection
 
-  use GenServer
+  # The facts the provider's `health/1` judges: the connection's failure, the
+  # run of refused batches and its last error. A probe that times out is also
+  # what a reader waiting on the relay looks like.
+  use Worker, facts: [:failure, :consecutive_failures, :last_error]
   use Flezha.Process.Timer, keys: [:connect, :batch, :resume]
 
   require Logger
 
   @provider :rabbitmq_consumer
-
-  @doc "Started by the extension table at activation, from the declared spec."
-  @spec start_link(map()) :: GenServer.on_start()
-  def start_link(args) when is_map(args),
-    do: GenServer.start_link(__MODULE__, args, name: Map.fetch!(args, :name))
 
   @doc """
   The reader's start arguments, from the plugin's prepared options. The
@@ -62,14 +60,6 @@ defmodule FlezhaRabbitmq.Consumer.Reader do
     |> Map.put(:link_args, Connection.args(opts))
   end
 
-  @doc """
-  The facts the provider's `health/1` judges: the connection's failure, the
-  run of refused batches and its last error. `:timeout` when the reader does
-  not answer, which is also what a reader waiting on the relay looks like.
-  """
-  @spec probe(pid()) :: {:ok, map()} | :timeout
-  def probe(pid), do: ProviderBehaviour.ask(pid, :health_probe)
-
   @impl true
   def init(args) do
     # A stop closes the connection, which only a trapped shutdown reaches.
@@ -79,14 +69,8 @@ defmodule FlezhaRabbitmq.Consumer.Reader do
       args
       |> Map.drop([:name])
       |> Map.merge(Connection.initial(args.link_args))
-      |> Map.merge(%{
-        watch: Watch.watch(Watch.new(), args.overwatcher_pid, :host),
-        consumer: nil,
-        held: [],
-        consecutive_failures: 0,
-        last_error: nil,
-        timers: %{}
-      })
+      |> Map.merge(Worker.fields(args))
+      |> Map.merge(%{consumer: nil, held: []})
 
     # Scheduled, never run here: activation is synchronous in the host.
     {:ok, arm_timer(state, :connect, 0, :connect)}
@@ -114,20 +98,9 @@ defmodule FlezhaRabbitmq.Consumer.Reader do
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
     case Connection.down(state.link, ref, reason, state.link_args) do
-      {:lost, failure} ->
-        {:noreply, lose(state, failure)}
-
-      :other ->
-        case Watch.down(state.watch, ref) do
-          {[:host], _watch} -> {:stop, :normal, state}
-          _stale -> {:noreply, state}
-        end
+      {:lost, failure} -> {:noreply, lose(state, failure)}
+      :other -> {:noreply, state}
     end
-  end
-
-  def handle_info({:health_probe, from, ref}, state) do
-    send(from, {ref, Map.take(state, [:failure, :consecutive_failures, :last_error])})
-    {:noreply, state}
   end
 
   def handle_info(_other, state), do: {:noreply, state}
@@ -241,7 +214,7 @@ defmodule FlezhaRabbitmq.Consumer.Reader do
       case refused do
         [] ->
           emit(:shipped, %{count: length(taken)}, labels(state))
-          %{state | consecutive_failures: 0, last_error: nil}
+          Worker.recovered(state)
 
         # The refused deliveries and every one held after them go back, in
         # their order, before anything newer is injected. The refusal is
@@ -280,7 +253,7 @@ defmodule FlezhaRabbitmq.Consumer.Reader do
   end
 
   defp refused(state, count, error) do
-    failures = state.consecutive_failures + 1
+    state = Worker.failed(state, error)
 
     Logger.warning(
       "[FlezhaRabbitmq.Consumer] queue=#{state.queue} deliveries=#{count} #{error}; " <>
@@ -288,10 +261,15 @@ defmodule FlezhaRabbitmq.Consumer.Reader do
     )
 
     emit(:failed, %{count: count}, Map.put(labels(state), :reason, error))
-    delay = Connection.backoff(state.link_args, failures, {@provider, state.plugin_id})
 
-    %{state | consecutive_failures: failures, last_error: error}
-    |> arm_timer(:resume, delay, :resume)
+    delay =
+      Connection.backoff(
+        state.link_args,
+        state.consecutive_failures,
+        {@provider, state.plugin_id}
+      )
+
+    arm_timer(state, :resume, delay, :resume)
   end
 
   # ---------- one delivery ----------
