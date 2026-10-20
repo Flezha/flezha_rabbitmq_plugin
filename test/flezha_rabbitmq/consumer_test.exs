@@ -133,8 +133,13 @@ defmodule FlezhaRabbitmq.ConsumerTest do
       assert metadata["rabbitmq.headers"] == "{}"
     end
 
-    test "split takes the longest prefix of :ok verdicts" do
+    # Fails when: an absorbed or suspended delivery reads as refused and is
+    # returned to the queue the relay already took it from.
+    test "split takes the longest prefix of taken verdicts" do
       assert Reader.split([:a, :b, :c], [:ok, :ok, :ok]) == {[:a, :b, :c], []}
+
+      assert Reader.split([:a, :b, :c], [{:ok, :absorbed}, {:ok, :suspended}, :ok]) ==
+               {[:a, :b, :c], []}
 
       assert Reader.split([:a, :b, :c], [:ok, {:error, :x}, :ok]) ==
                {[:a], [b: {:error, :x}, c: :ok]}

@@ -24,8 +24,10 @@ defmodule FlezhaRabbitmq.Consumer.Reader do
   """
 
   alias Flezha.Plugin.Host
+  alias Flezha.Plugin.Host.MsgId
   alias Flezha.Plugin.Provider.Worker
   alias Flezha.Plugin.ProviderBehaviour
+  alias Flezha.Relay.Ingest.Verdict
   alias FlezhaRabbitmq.Connection
 
   # The facts the provider's `health/1` judges: the connection's failure, the
@@ -34,6 +36,8 @@ defmodule FlezhaRabbitmq.Consumer.Reader do
   use Worker, facts: [:failure, :consecutive_failures, :last_error]
   use Flezha.Process.Timer, keys: [:connect, :batch, :resume]
 
+  require MsgId
+  require Verdict
   require Logger
 
   @provider :rabbitmq_consumer
@@ -234,12 +238,14 @@ defmodule FlezhaRabbitmq.Consumer.Reader do
   end
 
   @doc """
-  The deliveries the relay took, the longest prefix whose verdict is `:ok`,
-  and the rest, each with its verdict.
+  The deliveries the relay took, the longest prefix whose verdict is taken
+  (`Flezha.Relay.Ingest.Verdict.taken?/1`), and the rest, each with its verdict.
   """
   @spec split([term()], [term()]) :: {[term()], [{term(), term()}]}
   def split(batch, verdicts) do
-    {taken, refused} = batch |> Enum.zip(verdicts) |> Enum.split_while(&(elem(&1, 1) == :ok))
+    {taken, refused} =
+      batch |> Enum.zip(verdicts) |> Enum.split_while(&Verdict.taken?(elem(&1, 1)))
+
     {Enum.map(taken, &elem(&1, 0)), refused}
   end
 
@@ -291,13 +297,11 @@ defmodule FlezhaRabbitmq.Consumer.Reader do
         "rabbitmq.redelivered" => to_string(meta.redelivered),
         "rabbitmq.headers" => Jason.encode!(headers)
       }
+      |> MsgId.stamp_some(state.plugin_id, id(meta, headers, state.msg_id_header))
       |> put_set("rabbitmq.message_id", meta[:message_id])
       |> put_set("rabbitmq.timestamp", meta[:timestamp])
 
-    case id(meta, headers, state.msg_id_header) do
-      nil -> {payload, metadata}
-      id -> {payload, Map.put(metadata, "flz.msg_id", "#{state.plugin_id}/#{id}")}
-    end
+    {payload, metadata}
   end
 
   defp id(meta, _headers, nil), do: text(meta[:message_id])
