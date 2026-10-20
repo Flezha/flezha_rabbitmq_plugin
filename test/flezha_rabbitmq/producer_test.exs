@@ -12,6 +12,7 @@ defmodule FlezhaRabbitmq.ProducerTest do
 
   import ExUnit.CaptureLog
 
+  alias Flezha.Error
   alias Flezha.Plugin.Extension.Ctx
   alias Flezha.State.Outbox
   alias FlezhaRabbitmq.Producer
@@ -134,7 +135,11 @@ defmodule FlezhaRabbitmq.ProducerTest do
       end)
 
       stub(Outbox, :park, fn metadata, body, error, attempts ->
-        send(test, {:parked, metadata["flz.seq"], body, Jason.decode!(error), attempts})
+        send(
+          test,
+          {:parked, metadata["flz.seq"], body, Jason.decode!(Error.object(error)), attempts}
+        )
+
         :ok
       end)
 

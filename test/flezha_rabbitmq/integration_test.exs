@@ -173,8 +173,8 @@ defmodule FlezhaRabbitmq.IntegrationTest do
     out(opts, "g1", ProviderPrepare.guaranteed_metadata(@cell, 1, @key))
     assert_receive {:parked, "1.0", error}, 5_000
 
-    assert %{"code" => "rabbitmq.unroutable", "details" => %{"routing_key" => "nowhere"}} =
-             Jason.decode!(error)
+    assert %Flezha.Error{code: "rabbitmq.unroutable", details: %{"routing_key" => "nowhere"}} =
+             error
   end
 
   defp delete_exchange(name) do

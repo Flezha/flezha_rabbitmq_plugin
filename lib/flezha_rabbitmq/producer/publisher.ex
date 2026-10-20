@@ -387,7 +387,7 @@ defmodule FlezhaRabbitmq.Producer.Publisher do
   end
 
   defp park(entry, code, details, attempts),
-    do: Outbox.park(entry.metadata, entry.body, Error.object(Error.new(code, details)), attempts)
+    do: Outbox.park(entry.metadata, entry.body, Error.new(code, details), attempts)
 
   defp emit(state, verb, count, metadata),
     do:
