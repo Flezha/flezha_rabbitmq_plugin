@@ -30,7 +30,7 @@ defmodule FlezhaRabbitmq.ProducerTest do
     test "a plugin is prepared with its password held in a closure and its worker named" do
       assert {:ok, opts} = Helpers.prepare(Producer, @base)
       assert opts.password == "**redacted**"
-      assert {opts.queue_overflow, opts.persistent, opts.retries} == {:drop_oldest, true, 5}
+      assert {opts.queue_overflow, opts.persistent, opts.retries} == {:drop_nothing, true, 5}
       assert {:via, Registry, {_registry, {:default, "rabbit"}}} = opts.publisher
       refute inspect(Map.delete(Publisher.args(opts), :link_args)) =~ "hunter2"
     end
