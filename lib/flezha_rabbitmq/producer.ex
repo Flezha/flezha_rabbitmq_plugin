@@ -12,9 +12,9 @@ defmodule FlezhaRabbitmq.Producer do
   """
 
   alias Flezha.Plugin.Extension.Ctx
-  alias Flezha.Plugin.Provider.HttpFetch
   alias Flezha.Plugin.Provider.WorkerSup
   alias Flezha.Plugin.ProviderBehaviour
+  alias Flezha.Plugin.ProviderBehaviour.Options
   alias Flezha.State.Outbox
   alias FlezhaRabbitmq.Connection
   alias FlezhaRabbitmq.Producer.Publisher
@@ -52,7 +52,7 @@ defmodule FlezhaRabbitmq.Producer do
             doc: "The broker returns a payload no queue is bound for; a guaranteed one is parked"
           ],
           headers: [
-            type: :json,
+            type: :headers,
             default: %{},
             doc: "Static message headers, a JSON object; names starting `flz.` are refused"
           ],
@@ -68,16 +68,6 @@ defmodule FlezhaRabbitmq.Producer do
             default: "direct",
             doc: "With `declare_exchange`: the exchange's type"
           ],
-          channel: [
-            type: :names,
-            doc:
-              "The channel this plugin is attached to: only payloads naming it are published. Several names, comma-separated, publish them all"
-          ],
-          channel_out: [
-            type: :names,
-            doc: "Publish only payloads whose metadata channel matches; the explicit spelling"
-          ],
-          plugin_id: [type: :string, doc: "Plugin id; defaults to the id it was enabled under"],
           retries: [
             type: :int,
             default: 5,
@@ -85,13 +75,6 @@ defmodule FlezhaRabbitmq.Producer do
             max: 100,
             doc:
               "Publishes again of a guaranteed output the broker refused or a lost connection left unconfirmed"
-          ],
-          retry_backoff_ms: [type: :int, default: 250, min: 1, doc: "First delay between retries"],
-          retry_max_backoff_ms: [
-            type: :int,
-            default: 10_000,
-            min: 1,
-            doc: "Ceiling for that delay"
           ],
           queue_max: [
             type: :int,
@@ -115,29 +98,30 @@ defmodule FlezhaRabbitmq.Producer do
           # The worker this plugin's payloads are cast to, named once here so the
           # dispatch builds nothing per payload.
           publisher: [type: :any, internal: true, transient: true]
-        ],
+        ] ++
+        Options.channel(:out, "payload") ++
+        Options.plugin_id("the id it was enabled under") ++
+        Options.retry(retry_max_backoff_ms: 10_000),
     worker: [module: Publisher, restart: :transient]
 
   @impl true
   def init_provider(opts) do
     opts = %{opts | plugin_id: opts.plugin_id || opts[:source_plugin_id]}
 
-    with {:ok, headers} <- validate_headers(opts.headers),
+    with :ok <- refuse_reserved(opts.headers),
          :ok <- check_exchange(opts) do
       {:ok,
        opts
        |> Connection.prepare()
-       |> Map.merge(%{headers: headers, publisher: WorkerSup.worker(__MODULE__, key(opts))})}
+       |> Map.put(:publisher, WorkerSup.worker(__MODULE__, key(opts)))}
     end
   end
 
   # A static header may not pass for one the producer writes from the output.
-  defp validate_headers(headers) do
-    with {:ok, headers} <- HttpFetch.validate_headers(headers, "rabbitmq_producer") do
-      case Enum.find(Map.keys(headers), &String.starts_with?(&1, "flz.")) do
-        nil -> {:ok, headers}
-        name -> {:error, {:headers_invalid, "rabbitmq_producer", :headers, name}}
-      end
+  defp refuse_reserved(headers) do
+    case Enum.find(Map.keys(headers), &String.starts_with?(&1, "flz.")) do
+      nil -> :ok
+      name -> {:error, {:headers_invalid, "rabbitmq_producer", :headers, name}}
     end
   end
 

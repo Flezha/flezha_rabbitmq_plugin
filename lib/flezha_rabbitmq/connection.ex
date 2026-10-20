@@ -4,11 +4,10 @@ defmodule FlezhaRabbitmq.Connection do
   that describe it, the password, the one connection and channel a worker
   opens, the failures that make it unhealthy, and its reconnect curve.
 
-  The password is the core's Postgres one (`Flezha.Plugin.Provider.Postgres.Connection`):
-  a literal one is held in the transient row `password_secret` inside a
-  closure and the prepared `password` is a placeholder; `connect/1` resolves
-  it, or `password_env`, at every connect, so it never lands in a worker's
-  state, a log line or a telemetry label. The client keeps it obfuscated in
+  The password is the shared credential row (`ProviderBehaviour.Options.secret/2`):
+  a literal one is held in a transient closure and the prepared `password` is
+  a placeholder; `connect/1` resolves it, or `password_env`, at every connect,
+  so it never lands in a worker's state, a log line or a telemetry label. The client keeps it obfuscated in
   its own connection process.
 
   The connection and the channel are the client's processes, not linked to
@@ -19,7 +18,7 @@ defmodule FlezhaRabbitmq.Connection do
   """
 
   alias Flezha.Config.Backoff
-  alias Flezha.Plugin.Provider.Postgres.Connection, as: Password
+  alias Flezha.Plugin.ProviderBehaviour.Options
 
   # The client waits this long for the broker to accept a connection; a worker
   # is busy while it does.
@@ -36,7 +35,7 @@ defmodule FlezhaRabbitmq.Connection do
           virtual_host: [type: :string, default: "/", doc: "Virtual host"],
           username: [type: :string, default: "guest", doc: "User the plugin connects as"]
         ] ++
-          Keyword.take(Password.rows(), [:password, :password_env, :password_secret]) ++
+          Options.secret(:password, "password") ++
           [
             ssl: [
               type: :bool,
@@ -72,7 +71,7 @@ defmodule FlezhaRabbitmq.Connection do
   @spec prepare(map()) :: map()
   def prepare(opts) do
     port = opts.port || if(opts.ssl, do: 5671, else: 5672)
-    Password.prepare(%{opts | port: port})
+    Options.hold_secret(%{opts | port: port}, :password)
   end
 
   @doc """
@@ -83,7 +82,7 @@ defmodule FlezhaRabbitmq.Connection do
   @spec args(map()) :: map()
   def args(opts) do
     name = "flezha #{opts.plugin_id} #{node()}"
-    password = Password.password_fun(opts)
+    password = Options.secret_fun(opts, :password)
     base = Map.take(opts, [:host, :port, :virtual_host, :username, :heartbeat_s])
     ssl = if opts.ssl, do: ssl_options(opts), else: :none
 

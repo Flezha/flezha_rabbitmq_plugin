@@ -16,6 +16,7 @@ defmodule FlezhaRabbitmq.Consumer do
   alias Flezha.Plugin.Extension.Ctx
   alias Flezha.Plugin.Provider.WorkerSup
   alias Flezha.Plugin.ProviderBehaviour
+  alias Flezha.Plugin.ProviderBehaviour.Options
   alias FlezhaRabbitmq.Connection
   alias FlezhaRabbitmq.Consumer.Reader
 
@@ -28,17 +29,6 @@ defmodule FlezhaRabbitmq.Consumer do
       Connection.rows() ++
         [
           queue: [type: :string, required: true, doc: "The queue to consume"],
-          channel: [
-            type: :names,
-            doc:
-              "The channel this plugin is attached to: the entry channel every message is injected on, and one name. Required, unless `channel_in` names it"
-          ],
-          channel_in: [
-            type: :names,
-            doc:
-              "Entry channel every message is injected on, and one name; the explicit spelling of `channel`. Required, unless `channel` names it"
-          ],
-          plugin_id: [type: :string, doc: "Plugin id; defaults to the id it was enabled under"],
           prefetch: [
             type: :int,
             default: 200,
@@ -69,14 +59,10 @@ defmodule FlezhaRabbitmq.Consumer do
             type: :names,
             doc:
               "With `bind_exchange`: the binding keys, comma-separated; one empty key when unset"
-          ],
-          failure_threshold: [
-            type: :int,
-            default: 3,
-            min: 1,
-            doc: "Refused batches in a row before the plugin reports unhealthy"
           ]
-        ],
+        ] ++
+        Options.channel(:in, "message") ++
+        Options.plugin_id("the id it was enabled under") ++ Options.failure_threshold(),
     worker: [module: Reader, restart: :temporary]
 
   @doc "Validate and prepare. Connects to nothing: the reader does, at activation."
