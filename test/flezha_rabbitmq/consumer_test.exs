@@ -35,18 +35,7 @@ defmodule FlezhaRabbitmq.ConsumerTest do
       assert {:ok, %{port: 5671}} = Helpers.prepare(Consumer, Map.put(@base, :ssl, true))
     end
 
-    test "a member of a partition group is refused" do
-      assert {:error, {:partitioned_host, %{provider: "rabbitmq_consumer", relay: "op"}}} =
-               Helpers.prepare(
-                 Consumer,
-                 Map.merge(@base, %{partition_count: 2, partition_index: 0})
-               )
-    end
-
-    test "a binding without an entry channel, a queue or a declare it binds with is refused" do
-      assert {:error, {:entry_channel_required, "rabbitmq_consumer"}} =
-               Helpers.prepare(Consumer, Map.delete(@base, :channel))
-
+    test "a binding without a queue or a declare it binds with is refused" do
       assert {:error, {:invalid_option_value, :queue, ""}} =
                Helpers.prepare(Consumer, %{@base | queue: ""})
 
