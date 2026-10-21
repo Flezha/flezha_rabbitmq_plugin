@@ -41,7 +41,7 @@ RUSTLER_SKIP_COMPILATION=true mix format --check-formatted
 
 `mix test` runs with `--no-start`: no controller boots, and the tests start the providers'
 worker families and stand in for the broker's channel and the relay. The catalogue test
-fails when a code the providers report is missing from the core's `flz_transport/errors.json`,
+fails when a code the providers report is missing from the core's `crates/flz_transport/errors.json`,
 and the docs test when an option table of `docs/public/plugins/rabbitmq.md` differs from its
 provider's declaration, printing the table to put there.
 

@@ -1,6 +1,6 @@
 defmodule FlezhaRabbitmq.IntegrationTest do
   @moduledoc """
-  Both providers against the RabbitMQ of `docker/dev/docker-compose.yml`, with
+  Both providers against the RabbitMQ of `deploy/docker/dev/docker-compose.yml`, with
   a stand-in relay. Tagged `:rabbitmq_integration`, which the default run
   excludes:
 
@@ -33,7 +33,7 @@ defmodule FlezhaRabbitmq.IntegrationTest do
   @compose [
     "compose",
     "-f",
-    Path.join(Mix.Project.deps_paths()[:flezha], "docker/dev/docker-compose.yml")
+    Path.join(Mix.Project.deps_paths()[:flezha], "deploy/docker/dev/docker-compose.yml")
   ]
   @cell {"Rates", "t1", "EUR.USD"}
   @key %{"flz.key" => "EUR.USD"}
