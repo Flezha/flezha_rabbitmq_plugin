@@ -218,7 +218,7 @@ defmodule FlezhaRabbitmq.Consumer.Reader do
       case refused do
         [] ->
           emit(:shipped, %{count: length(taken)}, labels(state))
-          Worker.recovered(state)
+          Worker.recovered(state, subject(state))
 
         # The refused deliveries and every one held after them go back, in
         # their order, before anything newer is injected. The refusal is
@@ -259,7 +259,7 @@ defmodule FlezhaRabbitmq.Consumer.Reader do
   end
 
   defp refused(state, count, error) do
-    state = Worker.failed(state, error)
+    state = Worker.failed(state, error, subject(state))
 
     Logger.warning(
       "[FlezhaRabbitmq.Consumer] queue=#{state.queue} deliveries=#{count} #{error}; " <>
@@ -338,6 +338,8 @@ defmodule FlezhaRabbitmq.Consumer.Reader do
   defp value(_type, value), do: value
 
   defp labels(state), do: %{plugin_id: state.plugin_id, queue: state.queue}
+
+  defp subject(state), do: "[FlezhaRabbitmq.Consumer] queue=#{state.queue}"
 
   defp emit(verb, measurements, metadata),
     do: ProviderBehaviour.emit(@provider, verb, measurements, metadata)
