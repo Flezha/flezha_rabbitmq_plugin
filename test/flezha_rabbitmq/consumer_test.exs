@@ -148,8 +148,16 @@ defmodule FlezhaRabbitmq.ConsumerTest do
       Helpers.stub_broker()
       stub(AMQP.Basic, :qos, fn _chan, _opts -> :ok end)
       stub(AMQP.Basic, :consume, fn _chan, queue -> {:ok, "ctag-" <> queue} end)
-      stub(AMQP.Basic, :ack, fn _chan, tag, opts -> send(test, {:ack, tag, opts}) && :ok end)
-      stub(AMQP.Basic, :nack, fn _chan, tag, opts -> send(test, {:nack, tag, opts}) && :ok end)
+
+      stub(AMQP.Basic, :ack, fn _chan, tag, opts ->
+        send(test, {:ack, tag, opts})
+        :ok
+      end)
+
+      stub(AMQP.Basic, :nack, fn _chan, tag, opts ->
+        send(test, {:nack, tag, opts})
+        :ok
+      end)
 
       Telemetry.capture([
         [:flezha, :plugin, :rabbitmq_consumer, :shipped],

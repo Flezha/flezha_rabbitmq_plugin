@@ -160,7 +160,8 @@ defmodule FlezhaRabbitmq.IntegrationTest do
     ProviderPrepare.stub_outbox_owner(@cell)
 
     stub(Outbox, :park, fn md, _body, error, _n ->
-      send(test, {:parked, md["flz.seq"], error}) && :ok
+      send(test, {:parked, md["flz.seq"], error})
+      :ok
     end)
 
     fx = "flz-void-#{run}"
