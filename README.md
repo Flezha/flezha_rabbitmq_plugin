@@ -64,14 +64,14 @@ MIX_ENV=prod mix deps.get
 MIX_ENV=prod RUSTLER_SKIP_COMPILATION=true mix flezha.plugin.package
 ```
 
-The archive is `_build/flezha_rabbitmq-0.1.0.fpz`. It bundles `amqp`, `amqp_client`,
+The archive is `_build/flezha_rabbitmq-0.1.1.fpz`. It bundles `amqp`, `amqp_client`,
 `rabbit_common`, `credentials_obfuscation`, `thoas`, `ranch` and OTP's `syntax_tools`, none of
 them native code; `recon`, which `rabbit_common` names, is the release's own at the core's
 version.
 
 ## Installing into a local release
 
-Install `_build/flezha_rabbitmq-0.1.0.fpz` on a controller and restart it, as
+Install `_build/flezha_rabbitmq-0.1.1.fpz` on a controller and restart it, as
 [Installing plugins](https://github.com/flezha/flezha/blob/main/docs/public/topics/plugins/installing_plugins.md#install-uninstall-and-sync)
 describes. Then enable `rabbitmq_consumer` or `rabbitmq_producer` on a relay as its page shows.
 
